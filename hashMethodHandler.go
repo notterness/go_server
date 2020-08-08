@@ -27,6 +27,14 @@ const PasswordFormField = "password"
 var requiredFormFields [RequiredFormFields]string
 
 /*
+** The following is used to keep track of when the hash password is saved for a particular index. There is a
+**   map that is locking that is available, but for now just using a mutex to protect access to the
+**   map from the different handlers
+ */
+var pswdMutex sync.Mutex
+var hashedPasswords = make(map[int64]string)
+
+/*
 ** Setup the required form fields. This uses an array to make the addition of additional required form fields easy.
  */
 func initializeHash() {
@@ -74,6 +82,9 @@ func hash(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				_, _ = fmt.Fprintf(os.Stderr, "hash(1) Fprintf: %d %v\n", n, err)
 			}
+
+			password := r.FormValue(PasswordFormField)
+			go performHash(int64(tmp), password)
 		} else {
 			/*
 			** UNPROCESSABLE_ENTITY_422
@@ -122,7 +133,7 @@ func hashWithQualifier(w http.ResponseWriter, r *http.Request) {
 		 */
 		i, err := strconv.ParseInt(methodStrings[2], 10, 32)
 		if err == nil {
-			performHash(i, "angryMonkey")
+			returnHashedPassword(w, i)
 		} else {
 			/*
 			** UNPROCESSABLE_ENTITY_422
@@ -149,14 +160,64 @@ func hashWithQualifier(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func performHash(qualifier int64, password string) {
+/*
+** This function is used to compute the hash or a specific password/count combination. It waits for
+**   5 seconds prior to computing the hash for the password.
+ */
+func performHash(identifier int64, password string) {
+
+	dt := time.Now()
+	fmt.Println("Current date and time is: ", dt.String())
+
+	/*
+	** Wait five second prior to computing the hash
+	 */
+	time.Sleep(5000 * time.Millisecond)
+
+	dt = time.Now()
+	fmt.Println("Current date and time is: ", dt.String())
+
+	/*
+	** Now compute the hash
+	 */
 	h := sha512.New()
 	h.Write([]byte(password))
 	base64ResultStr := base64.StdEncoding.EncodeToString(h.Sum(nil))
 
-	n, err := fmt.Printf("%d base64: %s", qualifier, base64ResultStr)
+	n, err := fmt.Printf("%d base64: %s", identifier, base64ResultStr)
 	if err != nil {
 		_, _ = fmt.Fprintf(os.Stderr, "Fprintf: %d %v\n", n, err)
+	}
+
+	/*
+	** Save the hashed password in the map so that it can be accessed via the GET /hash/<identifier>
+	 */
+	pswdMutex.Lock()
+	hashedPasswords[identifier] = base64ResultStr
+	pswdMutex.Unlock()
+}
+
+/*
+** This is used to obtain the hashed password for a particular identifier. If the password has not been hashed
+**   the method will respond with NOT_FOUND_404 otherwise it will respond with the hashed password
+ */
+func returnHashedPassword(w http.ResponseWriter, identifier int64) {
+
+	pswdMutex.Lock()
+	password := hashedPasswords[identifier]
+	pswdMutex.Unlock()
+
+	if password == "" {
+		// NOT_FOUND_404
+		n, err := fmt.Fprintf(w, "{\"error\": 404}\n")
+		if err != nil {
+			_, _ = fmt.Fprintf(os.Stderr, "returnHashedPassword(1) Fprintf: %d %v\n", n, err)
+		}
+	} else {
+		n, err := fmt.Fprintf(w, "%s\n", password)
+		if err != nil {
+			_, _ = fmt.Fprintf(os.Stderr, "returnHashedPassword(2) Fprintf: %d %v\n", n, err)
+		}
 	}
 }
 
