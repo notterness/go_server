@@ -2,11 +2,10 @@ package main
 
 import (
 	"fmt"
-	"log"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
-	"time"
 )
 
 /*
@@ -22,19 +21,19 @@ import (
 var requestsMutex sync.Mutex
 
 var outstandingRequests int32 = 0
-var shutdownRequested bool = false
+var shutdownRequested = false
 
 // There are three separate maps to handle the three different HTTP verbs that are supported.
 //   POST /hash
 //   POST /hash/<integer value>
 //   GET /stats
 //   generic /shutdown
-var postHandlerMap map[string]func(http.ResponseWriter, *http.Request) = make(map[string]func(http.ResponseWriter, *http.Request))
-var getHandlerMap map[string]func(http.ResponseWriter, *http.Request) = make(map[string]func(http.ResponseWriter, *http.Request))
-var genericHandlerMap map[string]func(http.ResponseWriter, *http.Request) = make(map[string]func(http.ResponseWriter, *http.Request))
+var postHandlerMap = make(map[string]func(http.ResponseWriter, *http.Request))
+var getHandlerMap = make(map[string]func(http.ResponseWriter, *http.Request))
+var genericHandlerMap = make(map[string]func(http.ResponseWriter, *http.Request))
 
 // There is one map to figure out which verbs are supported and which method map to use
-var verbHttpMap map[string]map[string]func(http.ResponseWriter, *http.Request) = make(map[string]map[string]func(http.ResponseWriter, *http.Request))
+var verbHttpMap = make(map[string]map[string]func(http.ResponseWriter, *http.Request))
 
 /*
 ** The following are the supported methods
@@ -50,6 +49,11 @@ const StatsMethod = "stats"
  */
 const HttpGetVerb = "GET"
 const HttpPostVerb = "POST"
+
+/*
+** The following is the summation of the time required for POST /hash method handler
+ */
+var totalTime int64 = 0
 
 /*
 ** This is used to setup the different maps used to determine which handler to execute based upon the HTTP verb and
@@ -131,13 +135,6 @@ func handler(w http.ResponseWriter, r *http.Request) {
 		if len(methodStrings) >= 2 {
 			var handlerMap map[string]func(http.ResponseWriter, *http.Request)
 
-			/*
-			** Only measure the time for POST /hash requests if the server is not shutting down
-			 */
-			if r.Method == HttpPostVerb && methodStrings[1] == HashMethod {
-				defer measurePostTime(time.Now().UnixNano())
-			}
-
 			handlerMap = verbHttpMap[r.Method]
 			if handlerMap != nil {
 				fmt.Printf("Map lookup - %s\n", methodStrings[1])
@@ -173,7 +170,7 @@ func handler(w http.ResponseWriter, r *http.Request) {
 **     "false" to indicate normal handling of requests should take place.
  */
 func incOutstandingAndCheckForShutdown() bool {
-	var shuttingDown bool = false
+	var shuttingDown = false
 
 	requestsMutex.Lock()
 	if shutdownRequested {
@@ -200,20 +197,26 @@ func decOutstandingAndCheckForShutdown() {
 	requestsMutex.Unlock()
 }
 
-func stats(w http.ResponseWriter, r *http.Request) {
+/*
+** This is used to return the number of calls to "POST /hash" and the average time for all of the calls
+ */
+func stats(w http.ResponseWriter, _ *http.Request) {
 	mu.Lock()
 	tmp := count
-	var avg int = 0
+	avg := totalTime / int64(tmp)
 	mu.Unlock()
 
-	fmt.Fprintf(w, "{\"total\": %d, \"average\": %d}\n", tmp, avg)
+	n, err := fmt.Fprintf(w, "{\"total\": %d, \"average\": %d}\n", tmp, avg)
+	if err != nil {
+		_, _ = fmt.Fprintf(os.Stderr, "Fprintf: %d %v\n", n, err)
+	}
 }
 
 /*
 ** The shutdown() handler is pretty simple in that is just sets a flag that is checked whenever a new
 **   request comes in. The
  */
-func shutdown(w http.ResponseWriter, r *http.Request) {
+func shutdown(_ http.ResponseWriter, _ *http.Request) {
 	requestsMutex.Lock()
 	shutdownRequested = true
 
@@ -233,19 +236,25 @@ func shutdown(w http.ResponseWriter, r *http.Request) {
 **   received (this is after the shutdownRequested flag has been set). It tells the client the service is
 **   no longer available.
  */
-func failRequest(w http.ResponseWriter, r *http.Request) {
+func failRequest(w http.ResponseWriter, _ *http.Request) {
 	// SERVICE_UNAVAILABLE_503
-	fmt.Fprintf(w, "{\"error\": 503}\n")
+	n, err := fmt.Fprintf(w, "{\"error\": 503}\n")
+	if err != nil {
+		_, _ = fmt.Fprintf(os.Stderr, "Fprintf: %d %v\n", n, err)
+	}
 }
 
 /*
 ** This is used when the HTTP verb is supported, but the method the client requested is not supported
 **   by the server. It returns a simple error of METHOD_NOT_ALLOWED_405 to the client.
  */
-func unsupportedRequest(w http.ResponseWriter, r *http.Request) {
+func unsupportedRequest(w http.ResponseWriter, _ *http.Request) {
 	// METHOD_NOT_ALLOWED_405
 	fmt.Printf("unsupportedRequest\n")
-	fmt.Fprintf(w, "{\"error\": 405}\n")
+	n, err := fmt.Fprintf(w, "{\"error\": 405}\n")
+	if err != nil {
+		_, _ = fmt.Fprintf(os.Stderr, "Fprintf: %d %v\n", n, err)
+	}
 }
 
 /*
@@ -253,20 +262,11 @@ func unsupportedRequest(w http.ResponseWriter, r *http.Request) {
 **   supported verbs.
 ** This returns the METHOD_NOT_ALLOWED_405 and the list of supported HTTP verbs.
  */
-func verbNotSupported(w http.ResponseWriter, r *http.Request) {
+func verbNotSupported(w http.ResponseWriter, _ *http.Request) {
 	// METHOD_NOT_ALLOWED_405
-	fmt.Fprintf(w, "{\n   {\"error\": 405},\n   {\"Allow\": GET PUT POST}\n}\n")
+	n, err := fmt.Fprintf(w, "{\n   {\"error\": 405},\n   {\"Allow\": GET PUT POST}\n}\n")
+	if err != nil {
+		_, _ = fmt.Fprintf(os.Stderr, "Fprintf: %d %v\n", n, err)
+	}
 }
 
-/*
-** The following is a deferred function used to compute the time required to handle the POST functions.
-**
-** NOTE: This is not a perfect representation of the processing time for the POST /hash handler as there is
-**   work that was done prior to this call to determine the request type (and the work in the HTTP server just to
-**   receive the request). But, it does give a measure of the specific handler so that can be evaluated for
-**   improvements.
- */
-func measurePostTime(start int64) {
-	elapsed := (time.Now().UnixNano() - start) / int64(time.Microsecond)
-	log.Printf("POST /hash took %s", elapsed)
-}
