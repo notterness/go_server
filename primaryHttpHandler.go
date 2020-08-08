@@ -117,10 +117,13 @@ func handler(w http.ResponseWriter, r *http.Request) {
 	if !shuttingDown {
 		// Parse the URL to see if anything needs to be processed
 		methodStrings := strings.Split(r.URL.RequestURI(), "/")
+
+		/* DEBUG
 		for i := range methodStrings {
 			fmt.Printf("index %d - %s\n", i, methodStrings[i])
 		}
 		fmt.Printf("%s number strings: %d\n", r.URL.RequestURI(), len(methodStrings))
+		*/
 
 		/*
 		** See if there is an appropriate handler for passed in URL (only interested in the first entry to map the
@@ -137,7 +140,7 @@ func handler(w http.ResponseWriter, r *http.Request) {
 
 			handlerMap = verbHttpMap[r.Method]
 			if handlerMap != nil {
-				fmt.Printf("Map lookup - %s\n", methodStrings[1])
+				// fmt.Printf("Map lookup - %s\n", methodStrings[1])
 				httpHandler := handlerMap[methodStrings[1]]
 				if httpHandler != nil {
 					httpHandler(w, r)
@@ -250,7 +253,7 @@ func failRequest(w http.ResponseWriter, _ *http.Request) {
  */
 func unsupportedRequest(w http.ResponseWriter, _ *http.Request) {
 	// METHOD_NOT_ALLOWED_405
-	fmt.Printf("unsupportedRequest\n")
+	//fmt.Printf("unsupportedRequest\n")
 	n, err := fmt.Fprintf(w, "{\"error\": 405}\n")
 	if err != nil {
 		_, _ = fmt.Fprintf(os.Stderr, "Fprintf: %d %v\n", n, err)
