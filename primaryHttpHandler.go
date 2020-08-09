@@ -9,7 +9,7 @@ import (
 )
 
 /*
-** The requestsMutex is used to proterct access to the outstandingRequests and shutdownRequested variables.
+** The requestsMutex is used to protect access to the outstandingRequests and shutdownRequested variables.
 **   The problem that requires the mutex is the behavior of the outstandingRequests is dependent upon the
 **   state of the shutdownRequested boolean, so the code is clearer if they are treated as an atomic unit rather than
 **   two different atomic variables.
@@ -23,14 +23,12 @@ var requestsMutex sync.Mutex
 var outstandingRequests int32 = 0
 var shutdownRequested = false
 
-// There are three separate maps to handle the three different HTTP verbs that are supported.
+// There are two separate maps to handle the different HTTP verbs that are supported.
 //   POST /hash
 //   POST /hash/<integer value>
 //   GET /stats
-//   generic /shutdown
 var postHandlerMap = make(map[string]func(http.ResponseWriter, *http.Request))
 var getHandlerMap = make(map[string]func(http.ResponseWriter, *http.Request))
-var genericHandlerMap = make(map[string]func(http.ResponseWriter, *http.Request))
 
 // There is one map to figure out which verbs are supported and which method map to use
 var verbHttpMap = make(map[string]map[string]func(http.ResponseWriter, *http.Request))
@@ -78,13 +76,8 @@ func initialize() {
 	getHandlerMap[StatsMethod] = stats
 	getHandlerMap[ShutdownMethod] = shutdown
 
-	// The generic map is used to handle requests that don't care what the verb type is (GET, PUT, POST)
-	//   NOTE: For this implementation PUT, PATCH and DELETE are not supported and will return METHOD_NOT_ALLOWED_405
-	genericHandlerMap[ShutdownMethod] = shutdown
-
 	verbHttpMap[HttpGetVerb] = getHandlerMap
 	verbHttpMap[HttpPostVerb] = postHandlerMap
-	verbHttpMap["generic"] = genericHandlerMap
 }
 
 /*
@@ -203,7 +196,8 @@ func decOutstandingAndCheckForShutdown() {
 }
 
 /*
-** This is used to return the number of calls to "POST /hash" and the average time for all of the calls
+** Tis is the handler for the GET /stats request.
+**   It returns the number of calls to "POST /hash" and the average time for all of the calls
  */
 func stats(w http.ResponseWriter, _ *http.Request) {
 	mu.Lock()
@@ -219,7 +213,9 @@ func stats(w http.ResponseWriter, _ *http.Request) {
 
 /*
 ** The shutdown() handler is pretty simple in that is just sets a flag that is checked whenever a new
-**   request comes in. The
+**   request comes in. If there are not request currently being worked on, it will proceed with the
+**   shutdown immediately (via the httpShutdownRequest wait signal).
+** This will always return OK_200.
  */
 func shutdown(w http.ResponseWriter, _ *http.Request) {
 	requestsMutex.Lock()
