@@ -4,7 +4,6 @@ import (
 	"crypto/sha512"
 	"encoding/base64"
 	"fmt"
-	"log"
 	"net/http"
 	"os"
 	"strconv"
@@ -31,7 +30,7 @@ var requiredFormFields [RequiredFormFields]string
 **   map that is locking that is available, but for now just using a mutex to protect access to the
 **   map from the different handlers
  */
-var pswdMutex sync.Mutex
+var passwordMutex sync.Mutex
 var hashedPasswords = make(map[int64]string)
 
 /*
@@ -55,10 +54,13 @@ func hash(w http.ResponseWriter, r *http.Request) {
 	**   or if there is a endpoint identifier that follows the /hash/<new field>
 	 */
 	methodStrings := strings.Split(r.URL.RequestURI(), "/")
+
+	/* DEBUG
 	for i := range methodStrings {
 		fmt.Printf("hash() index %d - %s\n", i, methodStrings[i])
 	}
 	fmt.Printf("hash() number strings: %d\n", len(methodStrings))
+	 */
 
 	/*
 	** Parse out the form fields and make sure that "password" is present
@@ -66,9 +68,12 @@ func hash(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
 		_, _ = fmt.Fprintf(os.Stderr, "hashWithQualifier() ParseForm: %v\n", err)
 	}
+
+	/* DEBUG
 	for k, v := range r.Form {
 		fmt.Fprintf(w, "Form[%q] = %q\n", k, v)
 	}
+	*/
 
 	if validateFormData(r) {
 		numOfStr := len(methodStrings)
@@ -78,6 +83,7 @@ func hash(w http.ResponseWriter, r *http.Request) {
 			tmp := count
 			mu.Unlock()
 
+			// Return the <identifier> for this POST request
 			n, err := fmt.Fprintf(w, "%d\n", tmp)
 			if err != nil {
 				_, _ = fmt.Fprintf(os.Stderr, "hash(1) Fprintf: %d %v\n", n, err)
@@ -121,10 +127,12 @@ func hashWithQualifier(w http.ResponseWriter, r *http.Request) {
 	**   or if there is a endpoint identifier that follows the /hash/<new field>
 	 */
 	methodStrings := strings.Split(r.URL.RequestURI(), "/")
+	/* DEBUG
 	for i := range methodStrings {
 		fmt.Printf("hash() index %d - %s\n", i, methodStrings[i])
 	}
 	fmt.Printf("hash() number strings: %d\n", len(methodStrings))
+	 */
 
 	numOfStr := len(methodStrings)
 	if numOfStr == 3 {
@@ -166,16 +174,10 @@ func hashWithQualifier(w http.ResponseWriter, r *http.Request) {
  */
 func performHash(identifier int64, password string) {
 
-	dt := time.Now()
-	fmt.Println("Current date and time is: ", dt.String())
-
 	/*
 	** Wait five second prior to computing the hash
 	 */
 	time.Sleep(5000 * time.Millisecond)
-
-	dt = time.Now()
-	fmt.Println("Current date and time is: ", dt.String())
 
 	/*
 	** Now compute the hash
@@ -184,17 +186,19 @@ func performHash(identifier int64, password string) {
 	h.Write([]byte(password))
 	base64ResultStr := base64.StdEncoding.EncodeToString(h.Sum(nil))
 
+	/* DEBUG
 	n, err := fmt.Printf("%d base64: %s", identifier, base64ResultStr)
 	if err != nil {
 		_, _ = fmt.Fprintf(os.Stderr, "Fprintf: %d %v\n", n, err)
 	}
+	*/
 
 	/*
 	** Save the hashed password in the map so that it can be accessed via the GET /hash/<identifier>
 	 */
-	pswdMutex.Lock()
+	passwordMutex.Lock()
 	hashedPasswords[identifier] = base64ResultStr
-	pswdMutex.Unlock()
+	passwordMutex.Unlock()
 }
 
 /*
@@ -203,9 +207,9 @@ func performHash(identifier int64, password string) {
  */
 func returnHashedPassword(w http.ResponseWriter, identifier int64) {
 
-	pswdMutex.Lock()
+	passwordMutex.Lock()
 	password := hashedPasswords[identifier]
-	pswdMutex.Unlock()
+	passwordMutex.Unlock()
 
 	if password == "" {
 		// NOT_FOUND_404
@@ -248,7 +252,10 @@ func validateFormData(r *http.Request) bool {
  */
 func measurePostTime(start int64) {
 	elapsed := (time.Now().UnixNano() - start) / int64(time.Microsecond)
+
+	/* DEBUG
 	log.Printf("POST /hash took %d", elapsed)
+	 */
 
 	mu.Lock()
 	totalTime += elapsed
