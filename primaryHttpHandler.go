@@ -51,7 +51,9 @@ const HttpGetVerb = "GET"
 const HttpPostVerb = "POST"
 
 /*
-** The following is the summation of the time required for POST /hash method handler
+** The following is the summation of the time required for POST /hash method handler. This is updated
+**   under a mutex. This is also the time in milliseconds so there is some accuracy lost versus if this
+**   was kept in nanoseconds and then divided prior to the returning of the stats data.
  */
 var totalTime int64 = 0
 
@@ -83,8 +85,6 @@ func initialize() {
 	verbHttpMap[HttpGetVerb] = getHandlerMap
 	verbHttpMap[HttpPostVerb] = postHandlerMap
 	verbHttpMap["generic"] = genericHandlerMap
-
-	fmt.Println(postHandlerMap)
 }
 
 /*
@@ -111,7 +111,9 @@ func initialize() {
  */
 func handler(w http.ResponseWriter, r *http.Request) {
 
+	/* DEBUG
 	fmt.Fprintf(w, "%s %s %s\n", r.Method, r.URL, r.Proto)
+	 */
 
 	shuttingDown := incOutstandingAndCheckForShutdown()
 	if !shuttingDown {
@@ -219,7 +221,7 @@ func stats(w http.ResponseWriter, _ *http.Request) {
 ** The shutdown() handler is pretty simple in that is just sets a flag that is checked whenever a new
 **   request comes in. The
  */
-func shutdown(_ http.ResponseWriter, _ *http.Request) {
+func shutdown(w http.ResponseWriter, _ *http.Request) {
 	requestsMutex.Lock()
 	shutdownRequested = true
 
@@ -232,6 +234,13 @@ func shutdown(_ http.ResponseWriter, _ *http.Request) {
 	}
 
 	requestsMutex.Unlock()
+
+	// OK_200
+	n, err := fmt.Fprintf(w, "{\"response\": 200}\n")
+	if err != nil {
+		_, _ = fmt.Fprintf(os.Stderr, "Fprintf: %d %v\n", n, err)
+	}
+
 }
 
 /*
@@ -267,7 +276,7 @@ func unsupportedRequest(w http.ResponseWriter, _ *http.Request) {
  */
 func verbNotSupported(w http.ResponseWriter, _ *http.Request) {
 	// METHOD_NOT_ALLOWED_405
-	n, err := fmt.Fprintf(w, "{\n   {\"error\": 405},\n   {\"Allow\": GET PUT POST}\n}\n")
+	n, err := fmt.Fprintf(w, "{\n  {\"error\": 405},\n  {\"Allow\": GET POST}\n}\n")
 	if err != nil {
 		_, _ = fmt.Fprintf(os.Stderr, "Fprintf: %d %v\n", n, err)
 	}
