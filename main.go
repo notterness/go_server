@@ -1,4 +1,6 @@
-// Server1 is a minimal "echo" server.
+/*
+** This implements a basic HTTP server that responds to GET and POST verbs.
+ */
 package main
 
 import (
@@ -8,6 +10,10 @@ import (
 	"sync"
 )
 
+/*
+** The following sync httpShutdownRequested is triggered when the /shutdown request is received and there are
+**   no outstanding requests being processed.
+ */
 var httpShutdownRequested sync.WaitGroup
 
 func main() {
@@ -27,8 +33,6 @@ func main() {
 	srv := startHttpServer(httpServerExitDone)
 
 	// now close the server gracefully ("shutdown")
-	// timeout could be given with a proper context
-	// (in real world you shouldn't use TODO()).
 	httpShutdownRequested.Wait()
 	if err := srv.Shutdown(context.TODO()); err != nil {
 		panic(err) // failure/timeout shutting down the server gracefully
@@ -37,9 +41,17 @@ func main() {
 	// wait for goroutine started in startHttpServer() to stop
 	httpServerExitDone.Wait()
 
-	log.Printf("main: done. exiting")
+	log.Printf("main: exiting")
 }
 
+/*
+** THis starts up the actual HTTP server which is listening on port 8080.
+**
+** The server is setup with only a single handler function that all requests are routed through. This is done to
+**   simplify the handling of the shutdown process and to provide the ability to have different handlers
+**   that are used depending upon the state of the server. In this case, the states are simple, either running
+**   or in the process of being shut down.
+ */
 func startHttpServer(wg *sync.WaitGroup) *http.Server {
 
 	// Setup the initial HTTP Request handler map. This set of handlers covers the following methods:

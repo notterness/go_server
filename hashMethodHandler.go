@@ -12,6 +12,12 @@ import (
 	"time"
 )
 
+/*
+** the mu mutex and the count variable are used to return a "unique" identifier for each valid
+**   POST /hash request. The count variable is an incrementing value and the value returned is used to
+**   retrieve the hashed password (part of the form data in the POST /hash request) that is associated with
+**   the unique identifier.
+ */
 var mu sync.Mutex
 var count = 0
 
@@ -26,9 +32,9 @@ const PasswordFormField = "password"
 var requiredFormFields [RequiredFormFields]string
 
 /*
-** The following is used to keep track of when the hash password is saved for a particular index. There is a
-**   map that is locking that is available, but for now just using a mutex to protect access to the
-**   map from the different handlers
+** The following is used to keep track of when the hashed password is saved for a particular index. There is a
+**   map that has locking that is available, but for now just using a mutex to protect access to the
+**   map from the different handlers.
  */
 var passwordMutex sync.Mutex
 var hashedPasswords = make(map[int64]string)
@@ -41,7 +47,7 @@ func initializeHash() {
 }
 
 /*
-** This is the handler for the "PUT /hash" method. If there is not an error in the parsing of either the
+** This is the handler for the "POST /hash" method. If there is not an error in the parsing of either the
 **   method fields or the form data, it will return the number of times this has been called (inclusive of ths call).
  */
 func hash(w http.ResponseWriter, r *http.Request) {
@@ -117,7 +123,7 @@ func hash(w http.ResponseWriter, r *http.Request) {
 }
 
 /*
-** This is the hash function that is called from the GET verb
+** This is the hash function that is called from the GET /hash verb
  */
 func hashWithQualifier(w http.ResponseWriter, r *http.Request) {
 
