@@ -25,7 +25,35 @@ The curl format for the GET /stats request to retrieve the statistics values is:
 
 The curl format for the /shutdown request is either: curl http://localhost:8080/shutdown or curl -X POST http://localhost:8080/hash/
 
-The go_server has the following behavior:
+
+Design Information:
+
+The goal was to use as much of the available golang language features as possible with the assumption that they are stable and well tested. The interesting part
+of the design was how to handle the different operating requirements when the server is being shut down. Ideally, there would be two sets of HTTP verb and method
+handlers that could be swapped atomically. One would be used for normal operation and the other would be used when the system is in a shut down mode. There is
+likely a way to do something like that with the http.HandleFunc(), but due to limited time and knowledge of the inner working of the http class, I chose another
+implementation. The code uses a single handler function for all requests and then performs some parsing of the URL (http.Request.URL.RequestURL()) to determine
+the method to run for the different HTTP verbs (http.Request.Method). To determine which handler to use, there are two levels of maps used. The fist map uses the 
+HTTP verb to determine which method map to use (this is the verbHttpMap). The second level map uses the method that was parsed out of the URL to decide
+which actual handler to call. Since there are only two supported verbs in this implementation (GET and POST), the two second level maps are:
+  postHandlerMap
+  getHandlerMap
+
+To handle the different behavioral requirement when the system is shutting down, there are two routines used to manage the count of outstanding requests and
+if the special shutdown response handler should be called (the shutdown response handler is failRequests(), which returns SERVICE_UNAVAILABLE_503 to the
+clients). If the client has requested a shutdown, the system will start rejecting all new requests and will wait to trigger the shutdown of the http server
+until the outstanding requests have completed. A sync.WaitGroup variable is used to trigger the shutdown (httpShutdownRequested is the variable name).
+
+There is also a second sync.WaitGroup that is used to wait until the http server completes its shutdown prior to the program exiting.
+
+The hashed passwords are stored in a map (hashedPasswords to make it easy) that is protected by a mutex to allow different reader and writer threads. I think there is 
+also a thread safe map implementation in golang, but I decided to use the easy implementation with the base map class and a mutex. The hashed passwords are placed
+into the map by the peformHash() func that is run via the golang thread handoff method (the "go performHash()" call). This function waits five seconds and then 
+computes the SHA512 hash and base64 conversion and then places the result into the hash table at the identifier slot returned by the POST /hash request. The 
+presence of an entry in the hash table at a particular identifiers slot is what determines the response to the GET /hash/"identifier". If there is an entry, it
+will be returned as a string. If no entry is present, the GET wil return NOT_FOUND_404.
+
+The go_server has the following behavior for the interfaces:
 
 1) The POST /hash requests can all provide different passwords and the password hash is tied to the value that is the response. I refer to that value as the "identifier"
    as they are all unique to the POST /hash request. The hashed password that is returned from the GET /hash/"identifier" is the one (assuming 5 seconds have gone by)
