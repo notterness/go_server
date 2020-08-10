@@ -32,6 +32,12 @@ const PasswordFormField = "password"
 var requiredFormFields [RequiredFormFields]string
 
 /*
+** Do not allow the client to pass provide a password that is greater than 128 characters long. If they do,
+**   the POST /hash request will be rejected with a PRECONDITION_FAILED_412 error.
+ */
+const MaximumAcceptablePasswordLength = 128
+
+/*
 ** The following is used to keep track of when the hashed password is saved for a particular index. There is a
 **   map that has locking that is available, but for now just using a mutex to protect access to the
 **   map from the different handlers.
@@ -234,6 +240,8 @@ func returnHashedPassword(w http.ResponseWriter, identifier int64) {
 /*
 ** This function is used to validate the form data that is passed in from the client. It insures that the
 **   required form fields are present.
+** This also checks that the password field is less than a maximum length to keep control on memory usage and
+**   to prevent potential memory overrun attacks.
  */
 func validateFormData(r *http.Request) bool {
 	var success = true
@@ -245,6 +253,15 @@ func validateFormData(r *http.Request) bool {
 		}
 	}
 
+	if success {
+		/*
+		** Check to insure the length of the password field does not exceed a specified maximum to
+		**   insure that a client cannot overrun the memory in the server
+		 */
+		if len(r.FormValue(PasswordFormField)) > MaximumAcceptablePasswordLength {
+			success = false;
+		}
+	}
 	return success
 }
 
