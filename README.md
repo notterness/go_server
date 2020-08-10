@@ -49,4 +49,7 @@ The go_server has the following behavior:
 
 9) While the /shutdown method is waiting for outstanding requests to complete, the server will respond with the SERVICE_UNAVAILABLE_503 error to all new requests.
  
+10) The password provided in the POST /hash form data is limited to less than 128 characters (this is checked in the validateFormData() func) to prevent a client from
+    passing in some huge string that could potentially be used as a memory overrun attack. In addition, by providing a limit on the size, it helps to bound
+    the memory utilization of the go_server.
 
